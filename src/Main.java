@@ -29,7 +29,7 @@ public class Main
 	private static int SEARCH_LIMIT = 100;
 	public final static Logger LOGGER = Logger.getLogger(Main.class.getName());
 	public static HashMap<String, ArrayList<Location>> map;
-	private static boolean TEST = false;
+	private static boolean TEST = true;
 	
 	public static void main(String[] args)
 	{
@@ -40,7 +40,7 @@ public class Main
 				Database.dir = dictionaryDir;
 				ReadDocument.dir = docDir;			
 			}catch(IndexOutOfBoundsException e){
-				System.out.println("Usage: java Main <dictionary directory> <document directory>");
+				System.out.println("Usage: java Main <dictionary directory (file)> <directory with documents (folder)>");
 				return;
 			}
 		}
@@ -58,7 +58,7 @@ public class Main
 	public static void readDocument()
 	{
 		try {
-			ReadDocument.read();
+			ReadDocument.readDocs();
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		}
