@@ -1,46 +1,38 @@
-import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.logging.Logger;
-
-import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
 //import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.util.Version;
+
+import org.ardverk.collection.PatriciaTrie;
+import org.ardverk.collection.StringKeyAnalyzer;
+import org.ardverk.collection.Trie;
 
 public class Main
 {
-	private static MakeIndex luceneWriter = null;
-	private static String indexDir = "index";
-	private static int SEARCH_LIMIT = 100;
 	public final static Logger LOGGER = Logger.getLogger(Main.class.getName());
-	public static HashMap<String, ArrayList<Location>> map;
+	public static HashMap<String, ArrayList<Location>> locations_map;
+	public static HashMap<String, ArrayList<Location>> country_map;
+	public static HashMap<String, Trie<String, String>> locations_map_trie;
+	public static HashMap<String, Trie<String, String>> country_map_trie;
 	private static boolean TEST = true;
+	public static boolean PATRICIA = true;
 	
 	public static void main(String[] args)
 	{
 		if(!TEST){
 			try{
-				String dictionaryDir = args[0];
-				String docDir = args[1];
-				Database.dir = dictionaryDir;
-				ReadDocument.dir = docDir;			
+				String locations_dir = args[0];
+				String country_dir = args[1];
+				String doc_dir = args[2];
+				Database.locations_dir = locations_dir;
+				Database.country_dir = country_dir;
+				ReadDocument.dir = doc_dir;			
 			}catch(IndexOutOfBoundsException e){
-				System.out.println("Usage: java Main <dictionary directory (file)> <directory with documents (folder)>");
+				System.out.println("Usage: java Main <location dictionary directory (file)> <country dictionary directory (file)> <directory with documents (folder)>");
 				return;
 			}
 		}
@@ -49,10 +41,10 @@ public class Main
 		
 		boolean print = false;
 		makeHash(print);
-	    //makeIndex();
+		//makeIndex();
 		readDocument();
 		
-	    LOGGER.info("End");
+		LOGGER.info("End");
 	}
 	
 	public static void readDocument()
@@ -66,9 +58,19 @@ public class Main
 	
 	public static void makeHash(boolean print)
 	{
-		map = new HashMap<String, ArrayList<Location>>();
+		if(PATRICIA)
+		{
+			locations_map_trie = new HashMap<String, Trie<String, String>>();
+			country_map_trie = new HashMap<String, Trie<String, String>>();
+		}
+		else
+		{
+			locations_map = new HashMap<String, ArrayList<Location>>();
+			country_map = new HashMap<String, ArrayList<Location>>();
+		}
 		try {
-			Database.getEntries(false);
+			Database.getLocations();
+			//Database.getCountries();
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -77,83 +79,39 @@ public class Main
 			printHash();
 	}
 	
-	public static void makeIndex()
+	//hash the data using first two letters
+	public static void hash_locations(String location, String latlng)
 	{
-		luceneWriter = new MakeIndex(indexDir);
-		luceneWriter.openIndex();
-		try {
-			Database.getEntries(true);
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		Location loc = new Location(location, latlng);
+		String firstTwo = "";
+		try{
+			firstTwo = location.substring(0,1);
+		}catch(StringIndexOutOfBoundsException e){
+			System.out.println("empty location");
+			return;
 		}
-		luceneWriter.finish();
+		try{
+			firstTwo += location.substring(1,2);
+		} catch(Exception e){} //In case a location is only 1 letter
+		if(!PATRICIA){
+			ArrayList<Location> list = null;
+			list = locations_map.get(firstTwo);
+			if(list == null)
+				list = new ArrayList<Location>();
+			list.add(loc);
+			locations_map.put(firstTwo, list);
+		}
+		else{
+			Trie<String, String> trie = null;
+			trie = locations_map_trie.get(firstTwo);
+			if(trie == null)
+				trie = new PatriciaTrie<String, String>(StringKeyAnalyzer.INSTANCE);
+			trie.put(location, latlng);
+			locations_map_trie.put(firstTwo, trie);
+		}
 	}
 	
-	public static boolean search(String str)
-	{
-		IndexReader reader = null;
-		boolean match = false;
-		str = str.toLowerCase();
-		
-		try
-		{
-			reader = DirectoryReader.open(FSDirectory.open(new File(indexDir)));
-			IndexSearcher searcher = new IndexSearcher(reader);
-			Analyzer analyzer = new StandardAnalyzer(Version.LUCENE_CURRENT);
-			
-			QueryParser parser = new QueryParser(Version.LUCENE_CURRENT, "location", analyzer);
-			Query query = null;
-			try{
-				query = parser.parse(str);
-			} catch(ParseException e){
-				LOGGER.info("Cannot parse:" + str);
-				return false;
-			}
-//			TopDocs hits = searcher.search(query,null,100);
-//			System.out.println(hits);
-			ScoreDoc[] hits = searcher.search(query,SEARCH_LIMIT).scoreDocs;
-			
-			if(hits.length > 0)
-			{
-				for(int i=0;i<hits.length;i++)
-				{
-					Document doc = searcher.doc(hits[i].doc);
-					String location = doc.get("location");
-					String[] tokens = location.split("\\s");
-					String firstWord = tokens[0];
-					if((firstWord.toLowerCase()).compareTo(str) == 0)
-					{
-						match = true;
-						/*
-						System.out.println(location
-								//+ "\t" + doc.get("latlng")
-								+ "\t" + hits[i].score);
-						*/
-					}
-				}
-			}
-			else
-			{
-				//System.out.println("Match not found.");
-			}
-		}
-		catch(IOException e)
-		{
-			e.printStackTrace();
-		}
-		return match;
-	}
-	
-	//Method 1: index the data using Apache Lucene
-	public static void index(String location, String latlng)
-	{
-		Location loc = new Location(location,latlng);
-		luceneWriter.addLocation(loc);
-	}
-	
-	//Method 2: hash the data using first two letters
-	public static void hash(String location, String latlng)
+	public static void hash_countries(String location, String latlng)
 	{
 		Location loc = new Location(location, latlng);
 		String firstTwo = location.substring(0,1);
@@ -161,19 +119,29 @@ public class Main
 			firstTwo += location.substring(1,2);
 		} catch(Exception e){} //In case a location is only 1 letter
 		
-		ArrayList<Location> list = null;
-		list = map.get(firstTwo);
-		if(list == null)
-			list = new ArrayList<Location>();
-		list.add(loc);
-		map.put(firstTwo, list);
+		if(!PATRICIA){
+			ArrayList<Location> list = null;
+			list = country_map.get(firstTwo);
+			if(list == null)
+				list = new ArrayList<Location>();
+			list.add(loc);
+			country_map.put(firstTwo, list);
+		}
+		else{
+			Trie<String, String> trie = null;
+			trie = country_map_trie.get(firstTwo);
+			if(trie == null)
+				trie = new PatriciaTrie<String, String>(StringKeyAnalyzer.INSTANCE);
+			trie.put(location, latlng);
+			country_map_trie.put(firstTwo, trie);
+		}
 	}
 	
 	public static void printHash() //biggest list size = 156,744
 	{
 		int maxListSize = 0;
 		ArrayList<Location> biggestList = null;
-		Set<?> set = map.entrySet();
+		Set<?> set = locations_map.entrySet();
 		// Get an iterator
 		Iterator<?> it = set.iterator();
 		while(it.hasNext()) {

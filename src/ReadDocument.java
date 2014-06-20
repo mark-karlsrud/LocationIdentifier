@@ -2,11 +2,16 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Scanner;
+
+import org.ardverk.collection.PatriciaTrie;
+import org.ardverk.collection.Trie;
 
 public class ReadDocument
 {
-	public static String dir = "Geoname/texts";//1731092.txt"; //total words: 8686
+	public static String dir = "Geoname/texts"; //total words: 8686
 	private static Scanner scan;
 	
 	public ReadDocument(){}
@@ -42,33 +47,37 @@ public class ReadDocument
         	wordToWrite = word;
         	Location match = null;
         	int numOfWords = 0;
-        	
-        	//if(word != null)
-        	//{
-        		String firstTwo = word.substring(0,1);
-        		try{
-        			firstTwo += word.substring(1,2);
-        		} catch(Exception e){} //In case a location is only 1 letter
-        		ArrayList<Location> list = Main.map.get(firstTwo);
-        		
-        		try{
-        			
-        			boolean runAgain = false;
-        			
-        			for(int j = 0; j < list.size(); j++){
+
+    		String firstTwo = word.substring(0,1);
+    		try{
+    			firstTwo += word.substring(1,2);
+    		} catch(Exception e){} //In case a location is only 1 letter
+    		
+    		ArrayList<Location> list = null;
+    		Trie<String, String> trie = null;
+    		if(!Main.PATRICIA)
+    			list = Main.locations_map.get(firstTwo);
+    		else
+    			trie = Main.locations_map_trie.get(firstTwo);
+    		
+    		if(!Main.PATRICIA){
+	    		try{
+	    			
+	    			boolean runAgain = false;
+	    			
+	    			for(int j = 0; j < list.size(); j++){
 	        			Location loc = list.get(j);
 	        			String location = loc.getlocation();
-	        			String latlng = loc.getlatlng();
 	        			
 	        			if(location.contains(word))
 	        			{
 	        				//direct match. Result will change if a longer word is also a direct match
 	        				if(word.compareTo(location) == 0){
+	        					String latlng = loc.getlatlng();
 		        				match = new Location(location,latlng);
 		        				i += numOfWords;
 		        			}
 	        				runAgain = true;
-	        				
 	        			}
 	        			if(j == list.size()-1 && runAgain){
 	        				j = -1;
@@ -84,17 +93,51 @@ public class ReadDocument
 	        				}	
 	        			}
 	        		}
-        			
-        		}catch(NullPointerException e){
-        			//List not found. Pass
-        		}
-        		
-        		//print to file
-    			if(match != null)//numOfWords != 0) // or if match is not null
-    				newFile.annotate(match);
-    			else
-    				newFile.write(wordToWrite);
-        	//}
+	    			
+	    		}catch(NullPointerException e){
+	    			//List not found. Pass
+	    		}
+    		}
+    		else{
+    			try{
+	    			boolean runAgain = true;
+	    			
+	    			while(runAgain == true){
+	    				Entry<String, String> entry = trie.select(word);
+	        			String location = entry.getKey();
+	        			//String location = loc.getlocation();
+	        			if(location.contains(word))
+	        			{
+	        				//direct match. Result will change if a longer word is also a direct match
+	        				if(word.compareTo(location) == 0){
+	        					String latlng = entry.getValue();//loc.getlatlng();
+		        				match = new Location(location,latlng);
+		        				i += numOfWords;
+		        			}
+	        				numOfWords++;
+	        				runAgain = true;
+	        				//Add next word from document to see if a multi-word location is in the dictionary
+	        				try{
+	        					String nextWord = doc.get(i + numOfWords);
+	        					word += nextWord;
+	        				}catch(Exception e){
+	        					break;//no more words!
+	        				}
+	        			}
+	        			else
+	        				runAgain = false;
+        			} //end while
+	    			
+	    		}catch(NullPointerException e){
+	    			//List not found. Pass
+	    		}
+    		}
+    		
+    		//print to file
+			if(match != null)//numOfWords != 0) // or if match is not null
+				newFile.annotate(match);
+			else
+				newFile.write(wordToWrite);
         }
         newFile.close();
 	}
@@ -149,9 +192,5 @@ public class ReadDocument
 		
 		//str = str.replaceAll("\\p{P}", "");
 		return str;
-	}
-	
-	public static void write(){
-		
 	}
 }
