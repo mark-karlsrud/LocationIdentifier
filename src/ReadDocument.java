@@ -2,32 +2,28 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Scanner;
 
-import org.ardverk.collection.PatriciaTrie;
-import org.ardverk.collection.Trie;
+//import org.ardverk.collection.PatriciaTrie;
+//import org.ardverk.collection.Trie;
 
 public class ReadDocument
 {
-	public static String dir = "Geoname/texts"; //total words: 8686
+	public static String dir = "Geoname/texts";
 	private static Scanner scan;
-	
-	public ReadDocument(){}
+	private static ArrayList<String> doc;
 	
 	public static void readDocs() throws FileNotFoundException {
 		File folder = new File(dir);
 	    for (final File fileEntry : folder.listFiles()) {
-	        //if (fileEntry.isDirectory()) {
-	            //readDocs(fileEntry);
-	        //} else {
-					try {
-						readDoc(fileEntry);
-					} catch (UnsupportedEncodingException e) {
-						Main.LOGGER.info("unsupported encoding!");
-					}
-	        //}
+			try {
+				readDoc(fileEntry);
+			} catch (UnsupportedEncodingException e) {
+				Main.LOGGER.info("unsupported encoding!");
+			}
 	    }
 	}
 	
@@ -39,7 +35,7 @@ public class ReadDocument
 		scan = new Scanner(file);
 		String word;
 		String wordToWrite;
-    	ArrayList<String> doc = getWords();
+    	doc = getWords();
         
         //read by word from document
         for(int i = 0; i < doc.size(); i++) {
@@ -54,11 +50,11 @@ public class ReadDocument
     		} catch(Exception e){} //In case a location is only 1 letter
     		
     		ArrayList<Location> list = null;
-    		Trie<String, String> trie = null;
+    		HashMap<String, Node> map = null;
     		if(!Main.PATRICIA)
     			list = Main.locations_map.get(firstTwo);
     		else
-    			trie = Main.locations_map_trie.get(firstTwo);
+    			map = Main.locations_map_trie.get(firstTwo);
     		
     		if(!Main.PATRICIA){
 	    		try{
@@ -100,34 +96,16 @@ public class ReadDocument
     		}
     		else{
     			try{
-	    			boolean runAgain = true;
-	    			
-	    			while(runAgain == true){
-	    				Entry<String, String> entry = trie.select(word);
-	        			String location = entry.getKey();
-	        			//String location = loc.getlocation();
-	        			if(location.contains(word))
-	        			{
-	        				//direct match. Result will change if a longer word is also a direct match
-	        				if(word.compareTo(location) == 0){
-	        					String latlng = entry.getValue();//loc.getlatlng();
-		        				match = new Location(location,latlng);
-		        				i += numOfWords;
-		        			}
-	        				numOfWords++;
-	        				runAgain = true;
-	        				//Add next word from document to see if a multi-word location is in the dictionary
-	        				try{
-	        					String nextWord = doc.get(i + numOfWords);
-	        					word += nextWord;
-	        				}catch(Exception e){
-	        					break;//no more words!
-	        				}
-	        			}
-	        			else
-	        				runAgain = false;
-        			} //end while
-	    			
+    				Node parent = map.get(word);
+	    			if(parent != null){
+	    				if(parent.getlatlng() != null){
+	    					match = new Location(word, parent.getlatlng());
+	    				}
+	    				ArrayList<Node> nodes = parent.getNodes();
+	    				Location newLoc = dothing(word, word, nodes, i);
+	    				if(newLoc != null)
+	    					match = newLoc;
+	    			}	    			
 	    		}catch(NullPointerException e){
 	    			//List not found. Pass
 	    		}
@@ -135,62 +113,75 @@ public class ReadDocument
     		
     		//print to file
 			if(match != null)//numOfWords != 0) // or if match is not null
-				newFile.annotate(match);
+			{
+				newFile.annotateLocation(match);
+				if(Main.PATRICIA){
+					String[] tokens = match.getlocation().split(ReadDocument.getDelimeters());
+					i += tokens.length - 1;
+				}
+			}
 			else
 				newFile.write(wordToWrite);
         }
         newFile.close();
 	}
 	
-	//get all words from document
-	public static ArrayList<String> getWords()
-	{
+	public static Location dothing(String wholeWord, String word, ArrayList<Node> nodes, int index){
+		Location match = null;
+		
+		try{
+			String nextWord = doc.get(index+1);
+			word = nextWord;
+		}catch(Exception e){
+			return null;//no more words!
+		}
+		
+		for(int j = 0; j < nodes.size(); j++){
+			Node node = nodes.get(j);
+			String key = node.getKey();
+			//System.out.println("comparing " + key + " and " + word);
+			if(key.equals(word)){
+				wholeWord += word;
+				
+				if(node.getlatlng() != null){
+					match = new Location(wholeWord, node.getlatlng());
+					//System.out.println("got match");
+				}
+				//System.out.println(key);
+				index++;
+				try{
+					String nextWord = doc.get(index);
+					Location newLoc = dothing(wholeWord, nextWord, node.getNodes(),index);
+					if(newLoc != null)
+						match = newLoc;
+				}catch(Exception e){
+					break;//no more words!
+				}
+				break;
+			}
+		}
+		return match;
+	}
+	
+	public static String getDelimeters(){
 		String NEW_LINES = "((?<=\r\n)|(?=\r\n))|((?<=[\r\n])|(?=[\r\n]))"; //included as a "word"
 		String SPACES = "((?<= )|(?= ))"; //include as "word"
 		String PUNCTUATION = "((?<=\\p{P})|(?=\\p{P}))"; //include as "word"
-		scan.useDelimiter(NEW_LINES + "|" + SPACES + "|" + PUNCTUATION);
+		return NEW_LINES + "|" + SPACES + "|" + PUNCTUATION;
+	}
+	
+	//get all words from document
+	public static ArrayList<String> getWords()
+	{
+		scan.useDelimiter(getDelimeters());
 		
 		ArrayList<String> doc = new ArrayList<String>();
     	String word;
     	
         while(scan.hasNext()) {
         	word = scan.next();
-        	//word = removePunctuation(word);
         	doc.add(word);
         }
         return doc;
-	}
-		
-	//This function removes punctuation at the end of the word. Not used right now
-	public static String removeEnd(String str)
-	{
-		int length = str.length();
-		if(length == 0)
-		{
-			return null;
-		}
-		char lastChar = str.charAt(length-1);
-    	if(!Character.isLetterOrDigit(lastChar))
-    	{
-    		str = str.substring(0,length-1);
-    		str = removeEnd(str); //call it again, in case of ellipses etc.
-    	}
-		
-		return str;
-	}
-	
-	//This function removes all punctuation. Might need to modify this later, as some locations have hyphens etc.
-	public static String removePunctuation(String str)
-	{
-		str = removeEnd(str);
-		
-		//remove possessives
-		if(str.endsWith("'s"))
-		{
-			str = str.substring(0,str.length()-2);
-		}
-		
-		//str = str.replaceAll("\\p{P}", "");
-		return str;
 	}
 }
